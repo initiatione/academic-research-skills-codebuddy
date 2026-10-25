@@ -5,6 +5,7 @@
 上游是 Claude Code 插件。CodeBuddy 的插件格式与之高度相似但并非等价，这个仓库做的是**结构适配**，不是重写：技能内容、契约、rubric、脚本全部沿用上游，只改宿主相关的那一层。
 
 - 上游版本：**v3.23.2**
+- 移植版本：**3.23.2-cb1**（`<上游版本>-cb<N>`，N 是移植侧修订号）
 - 许可：**CC BY-NC 4.0**（非商用），著作权归上游作者 Cheng-I Wu
 - 内容：5 个技能 · 4 个子代理 · 16 个斜杠命令
 
@@ -40,27 +41,51 @@
 ### 第一步：装插件
 
 ```bash
-codebuddy plugin add https://github.com/initiatione/academic-research-skills-codebuddy
+codebuddy plugin add https://github.com/initiatione/academic-research-skills-codebuddy --yes
 ```
 
-CodeBuddy 会据此建一个本地市场 `git-<hash>`，把插件**拷贝**进
-`~/.workbuddy-ai/plugins/package-sources/git-<hash>/versions/<版本>-<内容哈希>/package/`。
+必须用 **`--yes`**（长选项）。帮助里写的是 `-y, --yes`，但实测 `-y` 不满足启用确认，会打印
+`Enablement needs a TTY confirmation or --yes; keeping the package disabled.` —— 装上了，但是 disabled。
 
-装完**未必是启用状态**。`-y` 只确认「启用下载的版本」，实测仍可能留成 disabled，所以要查一下：
+装完自查：
 
 ```bash
 codebuddy plugin list | grep -A3 ars
 ```
 
-状态是 `disabled` 就补一条启用命令 —— **必须用完整 id**：
+期望看到 `Status: enabled`。万一仍是 `disabled`，补一条启用命令 —— **必须用完整 id**：
 
 ```bash
-codebuddy plugin enable "ars@git-593864458ff78626630a3b21"
+codebuddy plugin enable "ars@git-5acaac9bb89d4ca7a073bc99"
 ```
 
-`codebuddy plugin enable ars` 会报 `Marketplace undefined is not found`，因为裸名字无法定位市场。
+裸名字会报 `Marketplace undefined is not found`。`update` / `uninstall` 同理。
 
 最后进会话执行 `/reload-plugins`。
+
+#### 这个 `git-<hash>` 是怎么来的
+
+市场 id = **`sha256(你输入的那个源字符串)[:24]`**。所以：
+
+- `.../academic-research-skills-codebuddy` → `git-5acaac9bb89d4ca7a073bc99`
+- `.../academic-research-skills-codebuddy.git` → `git-593864458ff78626630a3b21`
+
+两个字符串算出两个 id，就是**两份独立安装**：技能和命令会出现两套，旧的那份还得单独卸载。
+所以**始终用同一种写法**（上面给的是不带 `.git` 的形式），别这次带、下次不带。
+
+### 更新
+
+```bash
+codebuddy plugin add https://github.com/initiatione/academic-research-skills-codebuddy --yes
+```
+
+对，就是**再跑一次安装命令**。源字符串一致 → 同一个市场 id → 不会产生重复安装，只会把内容换成最新提交。
+
+`codebuddy plugin update` 在这条链路上是空转：它不会重新 clone 远端，只比对本地已有的目录，
+所以即使远端已经更新、版本号已经变过，它仍然回一句 `Successfully updated` 而什么都没换。
+别被这句话骗了。
+
+装完 `/reload-plugins` 生效。Python 依赖装在 `~/.local/share/ars-venv`，**与插件目录无关，更新不丢**。
 
 #### 如果 `codebuddy plugin *` 报 `EADDRINUSE 127.0.0.1:42599`
 
@@ -81,15 +106,15 @@ git clone https://github.com/initiatione/academic-research-skills-codebuddy
 sh academic-research-skills-codebuddy/tools/install.sh
 ```
 
-也可以直接对已安装的副本跑（venv 位置是全局的，跟哪份拷贝无关）：
+也可以直接对已安装的副本跑 —— venv 在固定的全局位置，跟哪份拷贝无关：
 
 ```bash
-sh ~/.workbuddy-ai/plugins/package-sources/git-*/versions/*/package/tools/install.sh
+sh "$(ls -d ~/.workbuddy-ai/plugins/package-sources/git-*/versions/*/package | head -1)/tools/install.sh"
 ```
 
 脚本做三件事：在 `~/.local/share/ars-venv` 建隔离 venv、按 `requirements.txt` 装包、逐个 import 验证。不会碰系统 Python。
 
-随时查状态：
+随时查状态（在仓库目录或插件副本目录里跑）：
 
 ```bash
 sh tools/install.sh --check
@@ -182,10 +207,12 @@ codebuddy --plugin-dir ~/dev/academic-research-skills-codebuddy
 |---|---|---|
 | `ModuleNotFoundError: No module named 'yaml'`（或 jsonschema / pypdf / ruamel / defusedxml / requests） | 没跑第二步 | `sh tools/install.sh` |
 | `ars: no dependency venv found — falling back to system python3` | 同上，venv 不在任何候选位置 | 同上，或 `export ARS_PYTHON=...` |
-| `/ars:` 命令补全不出来 | 插件没启用 | `codebuddy plugin list`，`codebuddy plugin enable "ars@git-<hash>"`，再 `/reload-plugins` |
-| `codebuddy plugin enable ars` 报 `Marketplace undefined is not found` | 裸名字定位不到市场 | 用 `ars@git-<hash>` 完整 id |
+| 装完 `Status: disabled` | 用了 `-y` | 重装时用 `--yes`，或 `codebuddy plugin enable "ars@git-<24hex>"` |
+| `/ars:` 命令补全不出来 | 插件没启用 / 没 reload | `plugin list` → `enable` → `/reload-plugins` |
+| 技能和命令出现两套 | 装过两次且 URL 写法不同（带不带 `.git`） | `plugin list` 找到两个 id，`uninstall` 旧的那个 |
+| `plugin enable ars` / `plugin update ars` 报 `Marketplace undefined is not found` | 裸名字定位不到市场 | 用 `ars@git-<24hex>` 完整 id |
+| `plugin update` 说成功但内容没变 | 这条链路不重新 clone 远端 | 用 `plugin add <同一 URL> --yes` 更新 |
 | `EADDRINUSE 127.0.0.1:42599` | 继承了宿主进程的 `SERVER__PORT` | `env -u SERVER__PORT -u CODEBUDDY_SERVICE_PROXY_URL -u CODEBUDDY_MCP_CONFIG codebuddy ...` |
-| `plugin update` 之后脚本又找不到依赖 | 新版本换了内容哈希目录 | 依赖在 `~/.local/share/ars-venv`，不受影响；`bin/python3` 随包分发，也在。只需 `/reload-plugins` |
 | 更新后 `which python3` 不指向插件 `bin/` | 只有 CodeBuddy 的 Bash 工具会前置插件 `bin/`，你的普通终端不会 | 在会话里验证；或在终端显式 `PATH=<插件>/bin:$PATH` |
 | Windows PowerShell 下脚本跑不起来 | `bin/python3` 是 POSIX sh 脚本，靠 Git Bash 生效 | 用 Git Bash，或设 `ARS_PYTHON` 并在技能里改用完整路径 |
 
@@ -241,7 +268,10 @@ python3 tools/compare_with_upstream.py --upstream ~/path/to/academic-research-sk
 
 `sync` 会重新生成 `skills/ agents/ commands/ shared/ scripts/` 和清单，`tools/`、`bin/`、README、NOTICE、LICENSE 不受影响。`verify` 检查清单合法性、frontmatter、以及全部 `${CODEBUDDY_PLUGIN_ROOT}/...` 引用是否真实存在（约 940 个）。`compare` 证明内容仍与上游逐字节一致。两者失败都返回非零。
 
-依赖：`python3` + `pyyaml`。改完记得把 `.codebuddy-plugin/plugin.json` 的 `version` 跟上上游 —— 版本号不变时 `plugin update` 认为无更新。
+依赖：`python3` + `pyyaml`（缺 PyYAML 时 `verify.py` 会自己转去用 `tools/install.sh` 建的那个 venv）。
+
+发版还有一步人工动作：把 `tools/sync_from_upstream.py` 里的 `PORT_REVISION` 加一。版本号是
+`<上游版本>-cb<N>`，重发同一个版本号不会让人察觉内容变了。
 
 ---
 
