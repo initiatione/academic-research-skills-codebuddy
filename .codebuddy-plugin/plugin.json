@@ -1,0 +1,50 @@
+{
+  "name": "ars",
+  "version": "3.23.2",
+  "description": "Academic research suite for CodeBuddy/WorkBuddy: paper writing, multi-perspective peer review, deep research, systematic-review screening, and an orchestrating pipeline. Port of academic-research-skills v3.23.2.",
+  "author": {
+    "name": "initiatione"
+  },
+  "homepage": "https://github.com/Imbad0202/academic-research-skills",
+  "keywords": [
+    "academic",
+    "research",
+    "paper",
+    "peer-review",
+    "systematic-review",
+    "codebuddy",
+    "workbuddy"
+  ],
+  "category": "学术研究",
+  "commands": [
+    "./commands/abstract.md",
+    "./commands/cache-invalidate.md",
+    "./commands/citation-check.md",
+    "./commands/disclosure.md",
+    "./commands/format-convert.md",
+    "./commands/full.md",
+    "./commands/lit-review.md",
+    "./commands/mark-read.md",
+    "./commands/outline.md",
+    "./commands/plan.md",
+    "./commands/rebuttal-audit.md",
+    "./commands/reviewer.md",
+    "./commands/revision-coach.md",
+    "./commands/revision.md",
+    "./commands/three-way.md",
+    "./commands/unmark-read.md"
+  ],
+  "agents": [
+    "./agents/report_compiler_agent.md",
+    "./agents/research_architect_agent.md",
+    "./agents/screening_reviewer_agent.md",
+    "./agents/synthesis_agent.md"
+  ],
+  "skills": [
+    "./skills/academic-paper",
+    "./skills/academic-paper-reviewer",
+    "./skills/academic-pipeline",
+    "./skills/deep-research",
+    "./skills/sr-screener"
+  ]
+}
