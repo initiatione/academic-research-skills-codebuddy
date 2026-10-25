@@ -35,6 +35,12 @@ from pathlib import Path
 PLUGIN_NAME = "ars"
 UPSTREAM_REPO = "https://github.com/Imbad0202/academic-research-skills"
 
+# Port-side revision, appended to the upstream version as `<version>-cb<N>`.
+# Bump it for every release that changes anything in the plugin package —
+# CodeBuddy's `plugin update` compares version strings, so an unchanged version
+# means "already up to date" and the fix never ships.
+PORT_REVISION = 1
+
 SKILLS = [
     "academic-paper",
     "academic-paper-reviewer",
@@ -185,7 +191,11 @@ def build_plugin_manifest(upstream: Path, out: Path) -> dict:
     version = upstream_manifest.get("version", "0.0.0")
     return {
         "name": PLUGIN_NAME,
-        "version": f"{version}",
+        # CodeBuddy's `plugin update` is version-gated: republishing an
+        # identical version string is a silent no-op even when the content
+        # changed. Port-side fixes therefore need PORT_REVISION bumped, or they
+        # never reach anyone who already installed the plugin.
+        "version": f"{version}-cb{PORT_REVISION}",
         "description": (
             "Academic research suite for CodeBuddy/WorkBuddy: paper writing, "
             "multi-perspective peer review, deep research, systematic-review "

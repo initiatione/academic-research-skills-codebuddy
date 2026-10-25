@@ -1,6 +1,6 @@
 {
   "name": "ars",
-  "version": "3.23.2",
+  "version": "3.23.2-cb1",
   "description": "Academic research suite for CodeBuddy/WorkBuddy: paper writing, multi-perspective peer review, deep research, systematic-review screening, and an orchestrating pipeline. Port of academic-research-skills v3.23.2.",
   "author": {
     "name": "initiatione"
