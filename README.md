@@ -35,40 +35,91 @@
 
 ## 安装
 
-### 依赖
+分两步：装插件、装 Python 依赖。**第二步不做的话，技能会在第一次调用脚本时崩**，因为上游脚本 import 了 pyyaml / jsonschema / pypdf / ruamel.yaml / defusedxml / requests。
 
-技能会调用 `scripts/` 下的 Python 脚本，这些脚本需要几个第三方包：
-
-```bash
-pip install -r requirements.txt
-```
-
-装进隔离环境也可以（推荐，避免污染系统 Python）：
+### 第一步：装插件
 
 ```bash
-python3 -m venv ~/.local/share/ars-venv
-~/.local/share/ars-venv/bin/pip install -r requirements.txt
+codebuddy plugin add https://github.com/initiatione/academic-research-skills-codebuddy
 ```
 
-技能里调用的是 `python3 scripts/...`，所以要让上面这个解释器在 `PATH` 里，或者把
-`python3` 指向它。
+CodeBuddy 会据此建一个本地市场 `git-<hash>`，把插件**拷贝**进
+`~/.workbuddy-ai/plugins/package-sources/git-<hash>/versions/<版本>-<内容哈希>/package/`。
 
-#### 如果 `python3` 装不了包
-
-有些环境（比如 WorkBuddy 托管解释器）的 site-packages 是只读的，user-site 又被
-`PYTHONPATH` 挤掉了，`pip install` 无处可去。这种情况可以生成一个**窄范围**的
-解释器 shim：
+装完**未必是启用状态**。`-y` 只确认「启用下载的版本」，实测仍可能留成 disabled，所以要查一下：
 
 ```bash
-sh tools/local_python_shim.sh            # 默认用 ~/.workbuddy-ai/binaries/python/envs/default
-sh tools/local_python_shim.sh --venv /path/to/venv
+codebuddy plugin list | grep -A3 ars
 ```
 
-它会写 `<插件根>/bin/python3`。CodeBuddy 启用插件时把 `bin/` **前置**到 Bash 的 `PATH`
-（`PATH = [...pluginBinPaths, ...rest]`），所以这个文件会优先命中。但它只对
-`*scripts/*.py` 生效 —— 其余 `python3` 调用原样透传给真正的托管解释器，不会劫持整个会话。
+状态是 `disabled` 就补一条启用命令 —— **必须用完整 id**：
 
-生成的文件含本机绝对路径，已列入 `.gitignore`，不会随仓库分发。
+```bash
+codebuddy plugin enable "ars@git-593864458ff78626630a3b21"
+```
+
+`codebuddy plugin enable ars` 会报 `Marketplace undefined is not found`，因为裸名字无法定位市场。
+
+最后进会话执行 `/reload-plugins`。
+
+#### 如果 `codebuddy plugin *` 报 `EADDRINUSE 127.0.0.1:42599`
+
+在 WorkBuddy 派生的 shell 里跑 CLI 会继承宿主进程的 `SERVER__PORT` 和
+`CODEBUDDY_SERVICE_PROXY_URL`，CLI 会试图复用那个端口。清掉即可（`--port` 在子命令上不接受）：
+
+```bash
+env -u SERVER__PORT -u CODEBUDDY_SERVICE_PROXY_URL -u CODEBUDDY_MCP_CONFIG \
+    codebuddy plugin list
+```
+
+普通终端里没有这个变量，不需要加。
+
+### 第二步：装 Python 依赖
+
+```bash
+git clone https://github.com/initiatione/academic-research-skills-codebuddy
+sh academic-research-skills-codebuddy/tools/install.sh
+```
+
+也可以直接对已安装的副本跑（venv 位置是全局的，跟哪份拷贝无关）：
+
+```bash
+sh ~/.workbuddy-ai/plugins/package-sources/git-*/versions/*/package/tools/install.sh
+```
+
+脚本做三件事：在 `~/.local/share/ars-venv` 建隔离 venv、按 `requirements.txt` 装包、逐个 import 验证。不会碰系统 Python。
+
+随时查状态：
+
+```bash
+sh tools/install.sh --check
+```
+
+```
+plugin root : /path/to/package
+router      : present (bin/python3)
+venv        : /home/you/.local/share/ars-venv/bin/python
+deps        : ok
+```
+
+想放别处：`sh tools/install.sh --venv /opt/ars-venv`（会写 `python-path` 记录位置），或者直接 `export ARS_PYTHON=/opt/ars-venv/bin/python`。
+
+### 为什么仓库里带一个 `bin/python3`
+
+技能调用脚本的方式是 `python3 <插件根>/scripts/xxx.py`。`bin/` 会被 CodeBuddy **前置**到 Bash 的 `PATH`
+（`PATH = [...pluginBinPaths, ...rest]`），所以这里的 `python3` 会优先命中。
+
+但全局劫持 `python3` 是不能接受的，所以它是**窄范围路由器**，不是替换：
+
+| 调用 | 行为 |
+|---|---|
+| `python3 <本插件>/*.py ...` | 用带依赖的解释器跑 |
+| `python3 -c ...` / `-m ...` / `-` | 原样透传给真正的 python3 |
+| `python3 别的项目的脚本` | 原样透传 |
+
+带依赖的解释器按顺序找：`$ARS_PYTHON` → `<插件>/python-path` → `~/.local/share/ars-venv` → `<插件>/.venv` → 系统 python3（降级，会打印一行提示）。
+
+这个文件**不含任何本机路径，随仓库提交**，所以 `plugin update` 换掉整个内容目录之后它还在。
 
 ### 开发/试用（不安装）
 
@@ -80,10 +131,6 @@ codebuddy --plugin-dir ~/dev/academic-research-skills-codebuddy
 
 - `/agents` 里应该能看到 4 个子代理
 - 输入 `/ars:` 应该能补全出 16 个命令
-
-### 常驻安装
-
-把整个目录放到 CodeBuddy 的插件目录下（或用插件市场指向本仓库），然后在会话里 `/reload-plugins`。
 
 ---
 
@@ -129,6 +176,23 @@ codebuddy --plugin-dir ~/dev/academic-research-skills-codebuddy
 
 ---
 
+## 排错
+
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| `ModuleNotFoundError: No module named 'yaml'`（或 jsonschema / pypdf / ruamel / defusedxml / requests） | 没跑第二步 | `sh tools/install.sh` |
+| `ars: no dependency venv found — falling back to system python3` | 同上，venv 不在任何候选位置 | 同上，或 `export ARS_PYTHON=...` |
+| `/ars:` 命令补全不出来 | 插件没启用 | `codebuddy plugin list`，`codebuddy plugin enable "ars@git-<hash>"`，再 `/reload-plugins` |
+| `codebuddy plugin enable ars` 报 `Marketplace undefined is not found` | 裸名字定位不到市场 | 用 `ars@git-<hash>` 完整 id |
+| `EADDRINUSE 127.0.0.1:42599` | 继承了宿主进程的 `SERVER__PORT` | `env -u SERVER__PORT -u CODEBUDDY_SERVICE_PROXY_URL -u CODEBUDDY_MCP_CONFIG codebuddy ...` |
+| `plugin update` 之后脚本又找不到依赖 | 新版本换了内容哈希目录 | 依赖在 `~/.local/share/ars-venv`，不受影响；`bin/python3` 随包分发，也在。只需 `/reload-plugins` |
+| 更新后 `which python3` 不指向插件 `bin/` | 只有 CodeBuddy 的 Bash 工具会前置插件 `bin/`，你的普通终端不会 | 在会话里验证；或在终端显式 `PATH=<插件>/bin:$PATH` |
+| Windows PowerShell 下脚本跑不起来 | `bin/python3` 是 POSIX sh 脚本，靠 Git Bash 生效 | 用 Git Bash，或设 `ARS_PYTHON` 并在技能里改用完整路径 |
+
+自查顺序：`sh tools/install.sh --check` → `codebuddy plugin list` → 会话内 `which python3`。
+
+---
+
 ## 结构
 
 ```
@@ -144,17 +208,18 @@ codebuddy --plugin-dir ~/dev/academic-research-skills-codebuddy
 ├── commands/                        # 16 个斜杠命令
 ├── shared/                          # 契约 / schema / rubric（技能共用）
 ├── scripts/                         # 上游 Python 工具链
+├── bin/python3                      # 解释器路由器（随包分发）
 ├── MODE_REGISTRY.md                 # 35 个模式的单一事实源
 ├── requirements.txt                 # 脚本运行时依赖
 ├── THIRD_PARTY.md  CITATION.cff     # 上游第三方声明与引用信息
 └── tools/
+    ├── install.sh                   # 一键装依赖 + 自检
     ├── sync_from_upstream.py        # 从上游重新生成
     ├── verify.py                    # 发布前静态校验
-    ├── compare_with_upstream.py     # 证明内容与上游一致
-    └── local_python_shim.sh         # 生成 bin/python3（本机用，不入库）
+    └── compare_with_upstream.py     # 证明内容与上游一致
 ```
 
-`bin/` 只在跑过 `local_python_shim.sh` 后出现，且已被 gitignore。
+`python-path` 只在用 `--venv` 指定非默认位置时生成，已被 gitignore。
 
 ### 路径引用的处理
 
@@ -174,9 +239,9 @@ python3 tools/verify.py
 python3 tools/compare_with_upstream.py --upstream ~/path/to/academic-research-skills
 ```
 
-`sync` 会重新生成 `skills/ agents/ commands/ shared/ scripts/` 和清单，`tools/`、README、NOTICE、LICENSE 不受影响。`verify` 检查清单合法性、frontmatter、以及全部 `${CODEBUDDY_PLUGIN_ROOT}/...` 引用是否真实存在（约 940 个）。`compare` 证明内容仍与上游逐字节一致。两者失败都返回非零。
+`sync` 会重新生成 `skills/ agents/ commands/ shared/ scripts/` 和清单，`tools/`、`bin/`、README、NOTICE、LICENSE 不受影响。`verify` 检查清单合法性、frontmatter、以及全部 `${CODEBUDDY_PLUGIN_ROOT}/...` 引用是否真实存在（约 940 个）。`compare` 证明内容仍与上游逐字节一致。两者失败都返回非零。
 
-依赖：`python3` + `pyyaml`。
+依赖：`python3` + `pyyaml`。改完记得把 `.codebuddy-plugin/plugin.json` 的 `version` 跟上上游 —— 版本号不变时 `plugin update` 认为无更新。
 
 ---
 
@@ -206,10 +271,15 @@ python3 tools/compare_with_upstream.py --upstream ~/path/to/academic-research-sk
 | 裸 `shared/` `scripts/` 引用改为显式绝对路径 | **修复上游的潜在缺陷** | 正向 |
 | 命令 `ars-plan` → `/ars:plan` | 宿主强制（自动加插件前缀） | 需要改口，有映射表 |
 | 命令移除 `model: sonnet` / `name:` | 字段在 CodeBuddy 无效 | 命令继承会话模型 |
+| 新增 `bin/python3` `tools/install.sh` | 宿主差异（托管解释器装不了包） | 正向 |
 | **钩子未移植** | 有意 | 见下 |
-| `docs/` `evals/` `tests/` `plugin-evals*/` `audits/` `pi/` `examples/` 未包含 | 非运行时 | 查设计文档请去上游 |
+| `docs/` `evals/` `tests/` `plugin-evals*/` `audits/` `pi/` `examples/` `.claude/` 未包含 | 非运行时 | 查设计文档请去上游 |
 | `package.json` `pyproject.toml` 未包含 | 是 Pi 适配器和 dev 工具的配置 | 无 |
 | `scripts/` 内 markdown 未做路径改写 | 有意 | 那些文档始终以仓库根为 cwd 运行 |
+
+上游有少量**开发期自检脚本**（如 `check_version_consistency.py`）假定仓库根存在
+`.claude/CLAUDE.md`，在本移植里跑会报文件不存在。它们不参与技能运行；本仓库的等价闸门是
+`tools/verify.py`。
 
 ### 为什么钩子没移植
 

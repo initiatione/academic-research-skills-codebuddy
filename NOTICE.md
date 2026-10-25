@@ -25,6 +25,13 @@
 5. 命令文件去掉 `ars-` 前缀（`/ars-plan` → `/ars:plan`）
 6. **未包含** 上游的 `hooks/`、`docs/`、`evals/`、`tests/`、`plugin-evals/`
 
+以下文件是本仓库新增的宿主适配件，**不属于上游内容**，著作权归本仓库：
+
+- `bin/python3` —— 解释器路由器，把插件自己的脚本转给带依赖的 Python
+- `tools/install.sh` —— 依赖安装与自检
+- `tools/sync_from_upstream.py`、`tools/verify.py`、`tools/compare_with_upstream.py` ——
+  移植生成与校验工具
+
 修改清单与理由见 `README.md`。
 
 ## 许可继承

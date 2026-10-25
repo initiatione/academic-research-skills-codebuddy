@@ -15,6 +15,7 @@ Exit code is 1 if any check fails, so this is usable as a pre-publish gate.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -22,7 +23,33 @@ from pathlib import Path
 try:
     import yaml
 except ImportError:  # pragma: no cover
-    sys.stderr.write("PyYAML required: pip install pyyaml\n")
+    # A managed interpreter often cannot install packages at all (read-only
+    # site-packages, user-site knocked out of sys.path). Rather than fail, hand
+    # off to the venv tools/install.sh created — same lookup order as bin/python3.
+    _root = Path(__file__).resolve().parents[1]
+    _cands = [os.environ.get("ARS_PYTHON", "")]
+    try:
+        _cands.append((_root / "python-path").read_text().splitlines()[0].strip())
+    except (OSError, IndexError):
+        pass
+    _cands += [
+        os.path.expanduser("~/.local/share/ars-venv/bin/python"),
+        str(_root / ".venv/bin/python"),
+        str(_root / ".venv/Scripts/python.exe"),
+    ]
+    for _c in _cands:
+        if not _c or not os.access(_c, os.X_OK):
+            continue
+        # A venv's bin/python is a symlink to the base interpreter, so file
+        # identity proves nothing. The environment is what differs — compare
+        # sys.prefix (a venv's prefix is its own root).
+        if os.path.realpath(os.path.dirname(os.path.dirname(_c))) == os.path.realpath(sys.prefix):
+            continue
+        os.execv(_c, [_c, *sys.argv])
+    sys.stderr.write(
+        "PyYAML required. Run 'sh tools/install.sh' once, or:\n"
+        "  pip install -r requirements.txt\n"
+    )
     raise SystemExit(2)
 
 ROOT = Path(__file__).resolve().parents[1]

@@ -1,0 +1,107 @@
+#!/bin/sh
+# python3 — narrow interpreter router shipped with the ARS plugin.
+#
+# Why this file exists
+# --------------------
+# The skills invoke their helpers as `python3 <plugin>/scripts/....py`, and those
+# helpers import pyyaml / jsonschema / pypdf / ruamel.yaml / defusedxml /
+# requests. On a managed interpreter (read-only site-packages, user-site knocked
+# out of sys.path by PYTHONPATH) none of those can be installed where `python3`
+# looks, so the scripts die on import.
+#
+# CodeBuddy prepends a plugin's bin/ to PATH for Bash tool calls, so a `python3`
+# placed here wins for the whole session. Shadowing python3 globally would be
+# reckless, so this router is deliberately narrow:
+#
+#   * if the FIRST non-option argument is a .py file INSIDE this plugin,
+#     run it with a dependency-complete interpreter (if one is found);
+#   * everything else — `-c`, `-m`, plain scripts, other projects — is passed
+#     through untouched to the real python3 on PATH.
+#
+# Interpreter resolution for the routed case, first hit wins:
+#   1. $ARS_PYTHON
+#   2. <plugin>/python-path          one line, optional, machine-local
+#   3. $HOME/.local/share/ars-venv   default created by tools/install.sh
+#   4. <plugin>/.venv
+#   5. the real python3 on PATH      (degraded: deps may be missing)
+#
+# No machine-specific paths are baked in — this file is committed as-is.
+set -u
+
+SELF_DIR=$(CDPATH= cd -P -- "$(dirname -- "$0")" && pwd) || exit 127
+PLUGIN_ROOT=$(CDPATH= cd -P -- "$SELF_DIR/.." && pwd) || exit 127
+SELF="$SELF_DIR/python3"
+
+# ---------------------------------------------------------------- real python3
+# Walk PATH ourselves so we can skip our own directory; `command -v python3`
+# would happily return this very file and recurse forever.
+REAL=""
+OLD_IFS=$IFS
+IFS=:
+for dir in $PATH; do
+    IFS=$OLD_IFS
+    [ -n "$dir" ] || continue
+    cand="$dir/python3"
+    [ -x "$cand" ] || continue
+    # Same file reached through another PATH entry (or a symlinked bin dir).
+    [ "$cand" -ef "$SELF" ] && continue
+    cand_dir=$(CDPATH= cd -P -- "$dir" 2>/dev/null && pwd) || continue
+    [ "$cand_dir" = "$SELF_DIR" ] && continue
+    REAL=$cand
+    break
+done
+IFS=$OLD_IFS
+
+# ------------------------------------------------------- dependency-complete
+PY=""
+for cand in \
+    "${ARS_PYTHON:-}" \
+    "$(cat "$PLUGIN_ROOT/python-path" 2>/dev/null | head -n 1)" \
+    "$HOME/.local/share/ars-venv/bin/python" \
+    "$PLUGIN_ROOT/.venv/bin/python" \
+    "$PLUGIN_ROOT/.venv/Scripts/python.exe"
+do
+    [ -n "$cand" ] || continue
+    [ -x "$cand" ] || continue
+    PY=$cand
+    break
+done
+
+# --------------------------------------------------------------- route or not
+route=0
+if [ "$#" -gt 0 ]; then
+    for arg in "$@"; do
+        case "$arg" in
+            # Inline code, module runs and stdin can't be inside the plugin.
+            -c|-m|-) route=0; break ;;
+            -*) continue ;;
+        esac
+        case "$arg" in
+            /*) target=$arg ;;
+            *)  target="$(pwd)/$arg" ;;
+        esac
+        # Collapse ./ and ../ when the file really exists; harmless otherwise.
+        if command -v realpath >/dev/null 2>&1; then
+            resolved=$(realpath -- "$target" 2>/dev/null) && target=$resolved
+        fi
+        case "$target" in
+            "$PLUGIN_ROOT"/*.py) route=1 ;;
+        esac
+        break
+    done
+fi
+
+if [ "$route" -eq 1 ]; then
+    if [ -n "$PY" ]; then
+        exec "$PY" "$@"
+    fi
+    echo "ars: no dependency venv found — falling back to system python3." >&2
+    echo "ars: run 'sh $PLUGIN_ROOT/tools/install.sh' to create one." >&2
+fi
+
+if [ -n "$REAL" ]; then
+    exec "$REAL" "$@"
+fi
+
+echo "ars: no python3 found on PATH" >&2
+exit 127
