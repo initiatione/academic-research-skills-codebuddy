@@ -35,6 +35,24 @@
 
 ## 安装
 
+### 依赖
+
+技能会调用 `scripts/` 下的 Python 脚本，这些脚本需要几个第三方包：
+
+```bash
+pip install -r requirements.txt
+```
+
+装进隔离环境也可以（推荐，避免污染系统 Python）：
+
+```bash
+python3 -m venv ~/.local/share/ars-venv
+~/.local/share/ars-venv/bin/pip install -r requirements.txt
+```
+
+技能里调用的是 `python3 scripts/...`，所以要让上面这个解释器在 `PATH` 里，或者把
+`python3` 指向它。
+
 ### 开发/试用（不安装）
 
 ```bash
@@ -110,9 +128,12 @@ codebuddy --plugin-dir ~/dev/academic-research-skills-codebuddy
 ├── shared/                          # 契约 / schema / rubric（技能共用）
 ├── scripts/                         # 上游 Python 工具链
 ├── MODE_REGISTRY.md                 # 35 个模式的单一事实源
+├── requirements.txt                 # 脚本运行时依赖
+├── THIRD_PARTY.md  CITATION.cff     # 上游第三方声明与引用信息
 └── tools/
     ├── sync_from_upstream.py        # 从上游重新生成
-    └── verify.py                    # 发布前静态校验
+    ├── verify.py                    # 发布前静态校验
+    └── compare_with_upstream.py     # 证明内容与上游一致
 ```
 
 ### 路径引用的处理
@@ -130,21 +151,65 @@ codebuddy --plugin-dir ~/dev/academic-research-skills-codebuddy
 ```bash
 python3 tools/sync_from_upstream.py --upstream ~/path/to/academic-research-skills
 python3 tools/verify.py
+python3 tools/compare_with_upstream.py --upstream ~/path/to/academic-research-skills
 ```
 
-`sync` 会重新生成 `skills/ agents/ commands/ shared/ scripts/` 和清单，`tools/`、README、NOTICE、LICENSE 不受影响。`verify` 检查清单合法性、frontmatter、以及全部 `${CODEBUDDY_PLUGIN_ROOT}/...` 引用是否真实存在（约 940 个），失败返回非零。
+`sync` 会重新生成 `skills/ agents/ commands/ shared/ scripts/` 和清单，`tools/`、README、NOTICE、LICENSE 不受影响。`verify` 检查清单合法性、frontmatter、以及全部 `${CODEBUDDY_PLUGIN_ROOT}/...` 引用是否真实存在（约 940 个）。`compare` 证明内容仍与上游逐字节一致。两者失败都返回非零。
 
 依赖：`python3` + `pyyaml`。
 
 ---
 
-## 已知限制
+## 和上游一样吗
 
-- **没有移植 hooks**（理由见上）。
-- **命令的 `model: sonnet` 已移除**：CodeBuddy 的模型列表里没有 `sonnet`，保留会让命令要么报错要么静默失效。现在 16 个命令都继承会话模型。同理移除了 `name:`，因为 CodeBuddy 按文件名推导命令名，`name` 字段不被读取。
-- **`docs/`、`evals/`、`tests/`、`plugin-evals/` 未包含**：上游仓库共 48 MB，这里只保留运行时需要的 16 MB。需要查阅设计文档请去上游。
-- **`scripts/` 里的 markdown 未做路径改写**：那是脚本自己的内部文档，运行时常驻仓库根，不参与模型阅读。
-- **跨模型验证（`ARS_CROSS_MODEL`）等可选能力未验证**：依赖上游的外部 API 配置，本移植未测试。
+**内容层：一样。** 1016 个文件逐字节比对通过 —— 技能文本、契约、schema、rubric、
+脚本、子代理提示，全部与上游一致，只差下文列出的机械适配。
+
+可以自己验：
+
+```bash
+python3 tools/compare_with_upstream.py --upstream ~/path/to/academic-research-skills
+```
+
+它会**把同样的改写重新施加到上游文件上**，再要求结果与本仓库逐字节相等。
+所以任何生成之后的手工改动都会立刻暴露，这个检查不依赖信任。
+
+**能力层：一样。** 5 技能 / 4 子代理 / 16 命令 / 35 个模式全部在位。
+
+### 差异清单（完整）
+
+| 差异 | 性质 | 影响 |
+|---|---|---|
+| 清单目录 `.claude-plugin/` → `.codebuddy-plugin/` | 宿主强制 | 无 |
+| 技能从仓库根移到 `skills/` | 宿主强制 | 无（路径已同步改写） |
+| `${CLAUDE_PLUGIN_ROOT}` → `${CODEBUDDY_PLUGIN_ROOT}` | 命名习惯（前者仍兼容） | 无 |
+| 裸 `shared/` `scripts/` 引用改为显式绝对路径 | **修复上游的潜在缺陷** | 正向 |
+| 命令 `ars-plan` → `/ars:plan` | 宿主强制（自动加插件前缀） | 需要改口，有映射表 |
+| 命令移除 `model: sonnet` / `name:` | 字段在 CodeBuddy 无效 | 命令继承会话模型 |
+| **钩子未移植** | 有意 | 见下 |
+| `docs/` `evals/` `tests/` `plugin-evals*/` `audits/` `pi/` `examples/` 未包含 | 非运行时 | 查设计文档请去上游 |
+| `package.json` `pyproject.toml` 未包含 | 是 Pi 适配器和 dev 工具的配置 | 无 |
+| `scripts/` 内 markdown 未做路径改写 | 有意 | 那些文档始终以仓库根为 cwd 运行 |
+
+### 为什么钩子没移植
+
+上游两个钩子里，`PreToolUse` 那个（`ars_write_scope_guard.py`）是写作用域守卫。
+上游自己的技能文档写得很明确：
+
+> a PreToolUse write-scope guard that applies only to Bucket A roles dispatched as
+> separate subagents of their own agent type in an install that wires the hook;
+> roles run inline in the main session by default, where only the prompt-level
+> blocks apply
+
+也就是说，这个守卫**只对「以自身 agent type 派发的单阶段子代理」生效**。CodeBuddy
+派发子代理用的是 `general-purpose` / `Explore` 这类类型，不会命中上游 manifest 里的
+角色名 —— 接上去也是空转，还让每次写操作多一次 Python 启动。
+
+`SessionStart` 那个是会话启动横幅 + 每日一次版本检查，纯提示，不影响任何能力。
+
+**所以不移植不降低防护等级** —— 失去的恰好是上游自己声明为「默认不适用」的那部分。
+想强行接线的话：把上游 `hooks/` 拷进插件根，把 `hooks.json` 里的
+`${CLAUDE_PLUGIN_ROOT}` 换成 `${CODEBUDDY_PLUGIN_ROOT}` 即可，格式是兼容的。
 
 ---
 

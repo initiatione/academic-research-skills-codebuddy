@@ -69,7 +69,7 @@ COMMANDS = {
 
 # Directories copied verbatim (no rewriting) — runtime dependencies.
 COPY_TREES = ["shared", "scripts"]
-COPY_FILES = ["MODE_REGISTRY.md"]
+COPY_FILES = ["MODE_REGISTRY.md", "THIRD_PARTY.md", "CITATION.cff"]
 
 CODE_SPAN = re.compile(r"`([^`\n]+)`")
 
@@ -194,6 +194,7 @@ def build_plugin_manifest(upstream: Path, out: Path) -> dict:
         ),
         "author": {"name": "initiatione"},
         "homepage": UPSTREAM_REPO,
+        "license": "CC-BY-NC-4.0",
         "keywords": [
             "academic",
             "research",

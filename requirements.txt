@@ -1,0 +1,24 @@
+# Runtime dependencies for the Python scripts the skills invoke.
+#
+# Derived by AST-scanning imports across the 223 non-test scripts in scripts/
+# (2026-10-25). Counts are import sites, not files:
+#   jsonschema   46   revision_roadmap.py and others
+#   pyyaml       36   temporal_integrity_audit.py and others
+#   pypdf         3   _calibration_pdf_text.py
+#   ruamel.yaml   3   _passport_yaml.py
+#   defusedxml    2   verify_submission_package.py
+#   requests      1   bootstrap_timeline_yaml.py
+#
+# `referencing` arrives with jsonschema; it is not listed separately.
+# Everything else the scripts import is either stdlib or a sibling module.
+
+pyyaml
+jsonschema[format]>=4.17
+pypdf
+ruamel.yaml>=0.17
+defusedxml
+requests
+
+# Optional — sr-screener can emit XLSX instead of CSV. The CSV path is the
+# default and needs nothing extra, so this stays out of the required set.
+# openpyxl>=3.1
