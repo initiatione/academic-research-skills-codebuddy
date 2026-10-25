@@ -53,6 +53,23 @@ python3 -m venv ~/.local/share/ars-venv
 技能里调用的是 `python3 scripts/...`，所以要让上面这个解释器在 `PATH` 里，或者把
 `python3` 指向它。
 
+#### 如果 `python3` 装不了包
+
+有些环境（比如 WorkBuddy 托管解释器）的 site-packages 是只读的，user-site 又被
+`PYTHONPATH` 挤掉了，`pip install` 无处可去。这种情况可以生成一个**窄范围**的
+解释器 shim：
+
+```bash
+sh tools/local_python_shim.sh            # 默认用 ~/.workbuddy-ai/binaries/python/envs/default
+sh tools/local_python_shim.sh --venv /path/to/venv
+```
+
+它会写 `<插件根>/bin/python3`。CodeBuddy 启用插件时把 `bin/` **前置**到 Bash 的 `PATH`
+（`PATH = [...pluginBinPaths, ...rest]`），所以这个文件会优先命中。但它只对
+`*scripts/*.py` 生效 —— 其余 `python3` 调用原样透传给真正的托管解释器，不会劫持整个会话。
+
+生成的文件含本机绝对路径，已列入 `.gitignore`，不会随仓库分发。
+
 ### 开发/试用（不安装）
 
 ```bash
@@ -133,8 +150,11 @@ codebuddy --plugin-dir ~/dev/academic-research-skills-codebuddy
 └── tools/
     ├── sync_from_upstream.py        # 从上游重新生成
     ├── verify.py                    # 发布前静态校验
-    └── compare_with_upstream.py     # 证明内容与上游一致
+    ├── compare_with_upstream.py     # 证明内容与上游一致
+    └── local_python_shim.sh         # 生成 bin/python3（本机用，不入库）
 ```
+
+`bin/` 只在跑过 `local_python_shim.sh` 后出现，且已被 gitignore。
 
 ### 路径引用的处理
 
